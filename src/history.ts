@@ -16,6 +16,28 @@ type Db = {
   };
 };
 
+type SqliteModuleLoader = (specifier: string) => unknown;
+type SqliteDatabaseConstructor = new (filename: string) => Db;
+
+/**
+ * Load the SQLite implementation provided by the current JavaScript runtime.
+ * Node exposes DatabaseSync from node:sqlite. Pi's bundled Bun runtime
+ * exposes the compatible Database class from bun:sqlite instead.
+ */
+export function resolveSqliteDatabaseConstructor(loadModule: SqliteModuleLoader = require): SqliteDatabaseConstructor {
+  try {
+    const sqlite = loadModule('node:sqlite') as { DatabaseSync?: unknown } | undefined;
+    if (typeof sqlite?.DatabaseSync === 'function') return sqlite.DatabaseSync as SqliteDatabaseConstructor;
+  } catch {}
+
+  try {
+    const sqlite = loadModule('bun:sqlite') as { Database?: unknown } | undefined;
+    if (typeof sqlite?.Database === 'function') return sqlite.Database as SqliteDatabaseConstructor;
+  } catch {}
+
+  throw new Error('No supported SQLite runtime is available. Tried node:sqlite and bun:sqlite.');
+}
+
 export function resolveSubagentsHistoryHome(env: NodeJS.ProcessEnv = process.env): string {
   if (env.PI_SUBAGENTS_HISTORY_HOME) return path.resolve(env.PI_SUBAGENTS_HISTORY_HOME);
   const xdg = env.XDG_DATA_HOME;
@@ -235,8 +257,8 @@ export class SubagentHistoryStore {
     if (existing) return existing;
     fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
     try { fs.chmodSync(path.dirname(file), 0o700); } catch {}
-    const { DatabaseSync } = require('node:sqlite') as any;
-    const db = new DatabaseSync(file) as Db;
+    const Database = resolveSqliteDatabaseConstructor();
+    const db = new Database(file);
     try { fs.chmodSync(file, 0o600); } catch {}
     configureHistoryDb(db);
     db.exec(`

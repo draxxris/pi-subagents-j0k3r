@@ -518,6 +518,8 @@ When `debug: true` is configured, the extension also may write debug diagnostics
 
 History and debug logging are best-effort: failures to persist them should not break delegation.
 
+The history store uses `node:sqlite` under Node. It uses the compatible `bun:sqlite` implementation when Pi runs under Bun.
+
 ## Nested Pi sessions
 
 New subagent sessions use Pi's default session directory for the active working directory:
