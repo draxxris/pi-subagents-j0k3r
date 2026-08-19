@@ -1,6 +1,6 @@
 # Pi Subagents Extension
 
-Pi extension for delegating work to markdown-defined subagents. Continuation is unavailable by default: `subagent_continue` is exposed only when effective `enable_continue` is explicitly `true`. The extension registers tools for the orchestrator, runs subagents in isolated in-memory Pi sessions, tracks task history, provides a TUI history panel, and supports per-subagent model/thinking-effort profiles.
+Pi extension for delegating work to markdown-defined subagents. Continuation is unavailable by default: `subagent_continue` is exposed only when effective `enable_continue` is explicitly `true`. The extension registers tools for the orchestrator, runs subagents in isolated persisted Pi sessions, tracks task history, provides a TUI history panel, and supports per-subagent model/thinking-effort profiles.
 
 ## What it provides
 
@@ -9,7 +9,7 @@ Pi extension for delegating work to markdown-defined subagents. Continuation is 
 - Optional `subagent_continue` for resuming the exact persisted nested session with optional mode/model/effort overrides when `enable_continue: true`.
 - `subagent_send_message` for live same-parent steering of owned background tasks on supported Pi runtimes.
 - Status/result/list/cancel tools for delegated tasks.
-- Isolated in-memory agent sessions for each subagent run.
+- Isolated persisted Pi sessions for each subagent run. New sessions use Pi's default session directory and record their parent session, so Pi Web can list them as child sessions.
 - Subagent markdown used as system prompt, with delegated task/context as the user prompt.
 - Project-scoped task history in a global SQLite data/cache location.
 - TUI history panel via `/subagents` or `ctrl+,` by default.
@@ -517,6 +517,16 @@ When `debug: true` is configured, the extension also may write debug diagnostics
 ```
 
 History and debug logging are best-effort: failures to persist them should not break delegation.
+
+## Nested Pi sessions
+
+New subagent sessions use Pi's default session directory for the active working directory:
+
+```txt
+~/.pi/agent/sessions/<encoded-working-directory>/*.jsonl
+```
+
+Each new session stores the parent session path in its `parentSession` header field. Pi Web uses this field to build the child-session tree. Existing continuation records keep their stored session path, so older private sessions remain resumable.
 
 ## Generic interaction handling
 

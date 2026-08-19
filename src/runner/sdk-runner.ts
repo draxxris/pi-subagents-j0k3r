@@ -2,7 +2,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { resolveEffectiveSubagentProfile } from '../profile-resolver.js';
 import { SubagentStructuredError } from '../error-metadata.js';
-import { resolveSubagentsHistoryHome } from '../history.js';
 import type { EffectiveSubagentProfile, ModelRef, SubagentDefinition, SubagentErrorMetadata, SubagentRunner, SubagentsConfig, ThinkingEffort } from '../types.js';
 import { getInteractionSessionRegistry } from './interaction-session-registry.js';
 import { detectPiRuntimeSupport, loadPiSdkModule } from './pi-sdk-module.js';
@@ -69,16 +68,15 @@ function registerInteractionSubagentSession(session: any, definition: SubagentDe
   };
 }
 
-function resolveNestedSessionsHome(): string {
-  const home = path.join(resolveSubagentsHistoryHome(), 'sessions');
-  fs.mkdirSync(home, { recursive: true, mode: 0o700 });
-  try { fs.chmodSync(home, 0o700); } catch {}
-  return home;
-}
-
 function sessionPathFromManager(sessionManager: any, fallback?: string): string | undefined {
   const direct = sessionManager?.getSessionFile?.() ?? sessionManager?.path ?? sessionManager?.sessionPath ?? fallback;
   return typeof direct === 'string' && direct.length > 0 ? direct : undefined;
+}
+
+function parentSessionPathFromContext(ctx: any): string | undefined {
+  const sessionPath = ctx?.sessionManager?.getSessionFile?.();
+  if (typeof sessionPath !== 'string' || sessionPath.length === 0) return undefined;
+  return path.resolve(sessionPath);
 }
 
 function secureSessionPath(sessionPath: string | undefined): void {
@@ -124,11 +122,14 @@ async function createSession(
 ) {
   const piSdk = await loadPiSdkModule();
   const { createAgentSession, SessionManager } = piSdk;
-  const sessionDir = resolveNestedSessionsHome();
+  // Use Pi's default session directory so Pi Web and Pi's session picker can
+  // discover this session. The parent path is stored in the session header so
+  // Pi Web can place the child under the originating session.
+  const parentSession = parentSessionPathFromContext(ctx);
   const sessionManager = nestedSessionPath
-    ? await SessionManager.open(nestedSessionPath, sessionDir, cwd)
+    ? await SessionManager.open(nestedSessionPath, undefined, cwd)
     : typeof SessionManager.create === 'function'
-      ? await SessionManager.create(cwd, sessionDir, { cwd })
+      ? await SessionManager.create(cwd, undefined, parentSession ? { parentSession } : undefined)
       : SessionManager.inMemory(cwd);
   const resolvedSessionPath = sessionPathFromManager(sessionManager, nestedSessionPath);
   await secureSessionPathWhenReady(resolvedSessionPath);

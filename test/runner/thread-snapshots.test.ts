@@ -94,7 +94,7 @@ describe('subagent runner thread snapshots', () => {
       },
     });
 
-    expect(sessionManagerSpies.open).toHaveBeenCalledWith('/tmp/subagent-session.jsonl', expect.any(String), '/workspace');
+    expect(sessionManagerSpies.open).toHaveBeenCalledWith('/tmp/subagent-session.jsonl', undefined, '/workspace');
     expect(continued.result.result).toBe('continued answer');
     expect(continued.result.thread_snapshot?.items).toEqual(expect.arrayContaining([
       expect.objectContaining({ type: 'user', label: 'delegated_task', text: 'capture a thread snapshot' }),
@@ -102,6 +102,25 @@ describe('subagent runner thread snapshots', () => {
       expect.objectContaining({ type: 'assistant', message: expect.objectContaining({ content: [expect.objectContaining({ type: 'text', text: 'continued answer' })] }) }),
     ]));
     expect(JSON.stringify(continued.result.thread_snapshot)).not.toContain('initial answer"},{"type":"assistant');
+  });
+
+  it('creates new nested sessions in Pi’s default directory with the parent session path', async () => {
+    const parentSessionPath = path.join(os.tmpdir(), 'pi-parent-session.jsonl');
+    const session = {
+      subscribe: vi.fn(() => vi.fn()),
+      prompt: vi.fn(async () => undefined),
+      messages: [{ role: 'assistant', content: [{ type: 'text', text: 'discoverable answer' }] }],
+      dispose: vi.fn(async () => undefined),
+    };
+
+    await runWithSession(session, '/workspace', {
+      ctx: {
+        model: { provider: 'test', id: 'model' },
+        sessionManager: { getSessionFile: () => parentSessionPath },
+      },
+    });
+
+    expect(sessionManagerSpies.create).toHaveBeenCalledWith('/workspace', undefined, { parentSession: parentSessionPath });
   });
 
   it('hardens nested session jsonl permissions after the file appears', async () => {
