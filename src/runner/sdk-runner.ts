@@ -4,12 +4,12 @@ import { resolveEffectiveSubagentProfile } from '../profile-resolver.js';
 import { SubagentStructuredError } from '../error-metadata.js';
 import { resolveSubagentsHistoryHome } from '../history.js';
 import { ensureSubagentSessionMarker, cleanSessionTitle } from '../session-metadata.js';
+import { expandToolPatterns } from '../tool-patterns.js';
 import type { EffectiveSubagentProfile, ModelRef, SubagentDefinition, SubagentErrorMetadata, SubagentRunner, SubagentsConfig, ThinkingEffort } from '../types.js';
 import { getInteractionSessionRegistry } from './interaction-session-registry.js';
 import { detectPiRuntimeSupport, loadPiSdkModule } from './pi-sdk-module.js';
 import { buildPrompt } from './prompt.js';
 import { promptWithInactivity, structuredMetadataFromError } from './event-processing.js';
-import { expandToolPatterns } from '../tool-patterns.js';
 
 function modelLabel(model: any): string | undefined {
   if (!model) return undefined;
@@ -25,12 +25,12 @@ function resolveModel(ctx: any, ref?: ModelRef): any | undefined {
   return ctx?.modelRuntime?.getModel?.(ref.provider, ref.id) ?? ctx?.modelRegistry?.find?.(ref.provider, ref.id);
 }
 
-function activeToolNames(ctx: any): string[] | undefined {
+function availableToolNames(ctx: any): string[] | undefined {
   for (const source of [ctx?.pi, ctx]) {
     try {
-      const tools = source?.getTools?.();
-      if (!Array.isArray(tools)) continue;
-      return tools
+      const allTools = source?.getAllTools?.();
+      if (!Array.isArray(allTools)) continue;
+      return allTools
         .map((tool: unknown) => typeof tool === 'string' ? tool : (tool as { name?: unknown })?.name)
         .filter((name: unknown): name is string => typeof name === 'string' && name.length > 0);
     } catch {}
@@ -253,7 +253,7 @@ export const sdkSubagentRunner: SubagentRunner = async ({ definition, task, task
   const preferred = selectedModel({ ctx, definition, profile });
   const effort = profile.effort.value;
   const configuredTools = definition.tools?.length ? definition.tools : config.default_tools;
-  const tools = expandToolPatterns(configuredTools, activeToolNames(ctx));
+  const tools = expandToolPatterns(configuredTools, availableToolNames(ctx));
   const systemPrompt = definition.instructions;
   const prompt = continuation?.prompt ?? buildPrompt(definition, task, context, tools, parentContext);
   onActivity?.({

@@ -14,18 +14,27 @@ export function matchesToolPattern(toolName: string, pattern: string): boolean {
   return hasToolGlob(pattern) ? wildcardToRegExp(pattern).test(toolName) : toolName === pattern;
 }
 
-export function expandToolPatterns(patterns: readonly string[], activeToolNames?: readonly string[]): string[] {
-  const active = activeToolNames ? [...new Set(activeToolNames)] : undefined;
+export function isSubagentToolName(toolName: string): boolean {
+  return toolName.startsWith('subagent_');
+}
+
+/**
+ * Expand asterisk patterns against the tool names available in the parent Pi session.
+ * Exact names remain unchanged so unknown non-pattern names retain existing behavior.
+ * Asterisk patterns fail closed when the available tool list is unavailable.
+ */
+export function expandToolPatterns(patterns: readonly string[], availableToolNames?: readonly string[]): string[] {
+  const available = availableToolNames ? [...new Set(availableToolNames)] : undefined;
   const expanded: string[] = [];
   const add = (name: string) => {
-    if (name.startsWith('subagent_') || expanded.includes(name)) return;
+    if (isSubagentToolName(name) || expanded.includes(name)) return;
     expanded.push(name);
   };
 
   for (const pattern of patterns) {
     if (hasToolGlob(pattern)) {
-      if (!active) continue;
-      for (const toolName of active) {
+      if (!available) continue;
+      for (const toolName of available) {
         if (matchesToolPattern(toolName, pattern)) add(toolName);
       }
       continue;

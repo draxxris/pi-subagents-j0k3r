@@ -103,6 +103,28 @@ describe('config and workflow loading', () => {
     expect(loadSubagents(tmp).find((agent) => agent.name === 'worker')?.tools).toEqual(['read', 'write', 'bash']);
   });
 
+  it('keeps asterisk patterns in frontmatter and default_tools until runtime tool names are available', () => {
+    fs.writeFileSync(path.join(tmp, '.pi', 'subagents', 'worker.md'), `---\nname: worker\ntools: ahk_*\n---\n# Worker`);
+    fs.writeFileSync(path.join(tmp, '.pi', 'subagents.json'), JSON.stringify({ default_tools: ['context7_*', 'read'] }));
+
+    expect(loadSubagents(tmp).find((agent) => agent.name === 'worker')?.tools).toEqual(['ahk_*']);
+    expect(readSubagentsConfig(tmp).default_tools).toEqual(['context7_*', 'read']);
+  });
+
+  it('expands asterisk patterns in order and blocks subagent tools', () => {
+    const available = ['read', 'ahk_lookup', 'ahk_write', 'context7_search', 'subagent_run'];
+
+    expect(expandToolPatterns(['ahk_*', 'read', 'context7_*', 'subagent_*'], available)).toEqual([
+      'ahk_lookup',
+      'ahk_write',
+      'read',
+      'context7_search',
+    ]);
+    expect(matchesToolPattern('context7_?earch', 'context7_?earch')).toBe(true);
+    expect(matchesToolPattern('context7_search', 'context7_?earch')).toBe(false);
+    expect(matchesToolPattern('memory_search', 'memory_[sr]*')).toBe(false);
+  });
+
   it('parses Windows CRLF frontmatter', () => {
     const parsed = parseFrontmatter('---\r\nname: analyst\r\ntools: read, write\r\n---\r\n# Body');
 
@@ -404,7 +426,7 @@ describe('config and workflow loading', () => {
     expect(agents[0].tools).toEqual(['read', 'memory_search', 'memory_get', 'memory_add', 'memory_update']);
   });
 
-  it('keeps wildcard entries in config and expands them only against active tools', () => {
+  it('keeps wildcard entries in config and expands them only against available tools', () => {
     fs.writeFileSync(path.join(tmp, '.pi', 'subagents', 'worker.md'), `---\nname: worker\ntools: tool_*, read, subagent_*\n---\n# Worker`);
     fs.writeFileSync(path.join(tmp, '.pi', 'subagents.json'), JSON.stringify({ default_tools: ['context7_*', 'read'] }));
 

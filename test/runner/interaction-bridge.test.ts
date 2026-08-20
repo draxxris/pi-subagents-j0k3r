@@ -588,7 +588,7 @@ describe('subagent runner interaction-required bridge', () => {
     expect(result.effort).toBe('high');
   });
 
-  it('expands wildcard tool patterns from active parent-session tools only', async () => {
+  it('expands wildcard tool patterns from all available parent-session tools', async () => {
     vi.resetModules();
     const session = {
       subscribe: vi.fn(() => vi.fn()),
@@ -597,7 +597,7 @@ describe('subagent runner interaction-required bridge', () => {
       dispose: vi.fn(async () => undefined),
     };
     const createAgentSession = vi.fn(() => ({ session }));
-    const getTools = vi.fn(() => [{ name: 'read' }, { name: 'tool_lookup' }, { name: 'tool_write' }]);
+    const getTools = vi.fn(() => [{ name: 'tool_active_only' }]);
     const getAllTools = vi.fn(() => [{ name: 'read' }, { name: 'tool_lookup' }, { name: 'tool_write' }, { name: 'tool_hidden' }]);
 
     vi.doMock('@earendil-works/pi-coding-agent', () => ({
@@ -615,12 +615,12 @@ describe('subagent runner interaction-required bridge', () => {
       signal: new AbortController().signal,
     } as any);
 
-    expect(getTools).toHaveBeenCalledTimes(1);
-    expect(getAllTools).not.toHaveBeenCalled();
-    expect(createAgentSession).toHaveBeenCalledWith(expect.objectContaining({ tools: ['tool_lookup', 'tool_write', 'read'] }));
+    expect(getAllTools).toHaveBeenCalledTimes(1);
+    expect(getTools).not.toHaveBeenCalled();
+    expect(createAgentSession).toHaveBeenCalledWith(expect.objectContaining({ tools: ['tool_lookup', 'tool_write', 'tool_hidden', 'read'] }));
   });
 
-  it('expands wildcard patterns from default_tools using the active parent-session tools', async () => {
+  it('expands wildcard patterns from default_tools using all available parent-session tools', async () => {
     vi.resetModules();
     const session = {
       subscribe: vi.fn(() => vi.fn()),
@@ -629,7 +629,7 @@ describe('subagent runner interaction-required bridge', () => {
       dispose: vi.fn(async () => undefined),
     };
     const createAgentSession = vi.fn(() => ({ session }));
-    const getTools = vi.fn(() => ['read', 'tool_lookup']);
+    const getAllTools = vi.fn(() => ['read', 'tool_lookup']);
 
     vi.doMock('@earendil-works/pi-coding-agent', () => ({
       SessionManager: { inMemory: () => ({}) },
@@ -641,7 +641,7 @@ describe('subagent runner interaction-required bridge', () => {
       definition: { name: 'tool-user', description: 'tool user', filePath: '/tmp/tool-user.md', instructions: 'return a concise result', tools: [] },
       task: 'use tools',
       cwd: '/workspace',
-      ctx: { model: { provider: 'test', id: 'model' }, pi: { getTools } },
+      ctx: { model: { provider: 'test', id: 'model' }, pi: { getAllTools } },
       config: { timeout_ms: 10_000, stall_timeout_ms: 10_000, max_concurrency: 1, default_tools: ['tool_*', 'read'], model_profiles: {} },
       signal: new AbortController().signal,
     } as any);

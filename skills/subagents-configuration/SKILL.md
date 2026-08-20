@@ -176,7 +176,7 @@ tools:
 Instructions...
 ```
 
-Tool entries can include `*` wildcards such as `tool_*`. Wildcards expand at subagent runtime only against tools that are active in the current parent session. If a pattern matches nothing active, it expands to nothing. Blocked `subagent_*` tools remain unavailable even if a pattern would match them. The same wildcard behavior is supported by `default_tools` in `subagents.json`.
+Tool entries can use an asterisk wildcard. For example, `ahk_*` allows every available tool whose name starts with `ahk_`. The same syntax is supported by `default_tools` in `subagents.json`. Patterns are expanded against the available parent-session tool names at subagent start, and every `subagent_*` tool remains blocked.
 
 Configure model/effort routing separately in the matching local or global `subagents.json` when needed. If no matching profile/default is configured, the subagent inherits the current orchestrator model and thinking effort.
 
