@@ -218,6 +218,24 @@ describe('subagent_run tool', () => {
     expect(expanded).toContain('to=functions.memory_get');
   });
 
+  it('returns the nested Pi session path in model-visible task-mode output', async () => {
+    env.writeAgent('analyst');
+    const nestedSessionPath = `${env.tmp}/nested-session.jsonl`;
+    const manager = new SubagentManager(async () => ({
+      result: 'task result',
+      model: 'mock/model',
+      fallback_used: false,
+      nested_session_path: nestedSessionPath,
+    }));
+    let runTool: any;
+    registerSubagentTools({ registerTool: (tool: any) => { if (tool.name === 'subagent_run') runTool = tool; } }, manager);
+
+    const result = await runTool.execute('1', { agent: 'analyst', task: 'return session path', mode: 'task' }, undefined, undefined, { cwd: env.tmp });
+
+    expect(result.content[0].text).toContain(`nested session path: ${nestedSessionPath}`);
+    expect(result.details.results[0].nested_session_path).toBe(nestedSessionPath);
+  });
+
   it('returns an error tool result without continuation guidance when continuation is disabled', async () => {
     env.writeAgent('analyst');
     const manager = new SubagentManager(async () => { throw new Error('review failed'); });

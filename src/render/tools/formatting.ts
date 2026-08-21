@@ -52,6 +52,7 @@ export function formatTask(task: SubagentTask): string {
   const lines = [
     `agent: ${task.agent} · status: ${task.status} · attempt: ${task.attempt ?? 1} · id: ${task.id}`,
     task.effective_mode ? `effective mode: ${task.effective_mode}` : undefined,
+    task.nested_session_path ? `nested session path: ${task.nested_session_path}` : undefined,
     modelEffortLine(task),
     usage ? `usage: ${usage}` : undefined,
     task.status === 'queued' || task.status === 'running' || task.status === 'stopping'

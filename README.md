@@ -369,6 +369,8 @@ Behavior:
 - Invocation mode stays optional. Effective resolution is `input.mode ?? definition.subagent_mode ?? config.default_mode`, where `default_mode` falls back to `"task"`.
 - `mode: "task"` waits for completion and returns compact task summaries.
 - `mode: "background"` returns task IDs immediately. Keep using the parent chat and wait for the automatic completion/failure turn; use status/result tools only when you explicitly need an intermediate status or stored result, not to poll just for completion.
+- Task-mode results include the nested Pi session path after the session starts. You can pass this path in the `context` of a later `subagent_run` call.
+- Background launch results return task IDs immediately. The session path appears in the later completion notification and in `subagent_status` or `subagent_result` output.
 - When `mode` is omitted, a mixed batch can return `mode: "mixed"` plus `waited_task_ids`, `background_task_ids`, and per-member `effective_mode` rows.
 - Multiple agents can run from one request with `agents`.
 - `title` sets a display name on the nested subagent session(s) directly, before the session starts and before extensions bind. No separate model call is made to name the session: the orchestrator already has the context, so auto-titling extensions (for example `pi-auto-session-titles`) see the name present and skip their own generation. The title is normalized (whitespace collapsed, control characters stripped, capped at 100 characters) and also stored on the task record so it appears in history, `subagent_status`, and `subagent_result`. Continuations keep the persisted session name.

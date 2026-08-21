@@ -119,6 +119,22 @@ describe('completion message render', () => {
     expect(sendMessage.mock.calls[0][1]).toEqual({ triggerTurn: true, deliverAs: 'followUp' });
   });
 
+  it('returns the nested Pi session path in model-visible background completion content', () => {
+    const sendMessage = vi.fn();
+    const nestedSessionPath = `${env.tmp}/nested-session.jsonl`;
+    sendSubagentCompletionMessage({ sendMessage }, {
+      id: 'subtask_notify_path',
+      agent: 'analyst',
+      status: 'completed',
+      mode: 'background',
+      result: 'done',
+      nested_session_path: nestedSessionPath,
+    });
+
+    expect(sendMessage.mock.calls[0][0].content).toContain(`Nested session path: ${nestedSessionPath}`);
+    expect(sendMessage.mock.calls[0][0].details.task.nested_session_path).toBe(nestedSessionPath);
+  });
+
   it('renders background completion messages with a distinct themed block background', () => {
     let renderer: any;
     extension({
