@@ -3,7 +3,7 @@ import path from 'node:path';
 import { resolveEffectiveSubagentProfile } from '../profile-resolver.js';
 import { SubagentStructuredError } from '../error-metadata.js';
 import { resolveSubagentsHistoryHome } from '../history.js';
-import { cleanSessionTitle } from '../session-metadata.js';
+import { ensureSubagentSessionMarker, cleanSessionTitle } from '../session-metadata.js';
 import type { EffectiveSubagentProfile, ModelRef, SubagentDefinition, SubagentErrorMetadata, SubagentRunner, SubagentsConfig, ThinkingEffort } from '../types.js';
 import { getInteractionSessionRegistry } from './interaction-session-registry.js';
 import { detectPiRuntimeSupport, loadPiSdkModule } from './pi-sdk-module.js';
@@ -66,10 +66,21 @@ type SubagentInteractionSessionMetadata = {
   origin: 'subagent';
   requester: { subagentName: string; description?: string; taskId?: string };
   parent?: { piSessionId?: string };
+  sessionFile?: string;
+  parentSessionFile?: string;
+  stop?: (reason: string) => Promise<void>;
 };
 
-function registerInteractionSubagentSession(session: any, definition: SubagentDefinition, taskId?: string, parentPiSessionId?: string): () => void {
+function registerInteractionSubagentSession(
+  session: any,
+  definition: SubagentDefinition,
+  taskId: string | undefined,
+  parentPiSessionId: string | undefined,
+  parentSessionFile: string | undefined,
+  stop: (reason: string) => Promise<void>,
+): () => void {
   const sessionId = session?.sessionManager?.getSessionId?.() ?? session?.sessionId;
+  const sessionFile = sessionPathFromManager(session?.sessionManager);
   if (typeof sessionId !== 'string' || sessionId.length === 0) return () => undefined;
   const registry = getInteractionSessionRegistry() as Map<string, SubagentInteractionSessionMetadata>;
   const previous = registry.get(sessionId);
@@ -77,6 +88,7 @@ function registerInteractionSubagentSession(session: any, definition: SubagentDe
     origin: 'subagent',
     requester: { subagentName: definition.name, description: definition.description, taskId },
     parent: parentPiSessionId ? { piSessionId: parentPiSessionId } : undefined,
+    ...(sessionFile ? { sessionFile, parentSessionFile, stop } : {}),
   });
   return () => {
     if (previous) registry.set(sessionId, previous);
@@ -84,16 +96,15 @@ function registerInteractionSubagentSession(session: any, definition: SubagentDe
   };
 }
 
-function resolveNestedSessionsHome(): string {
-  const home = path.join(resolveSubagentsHistoryHome(), 'sessions');
-  fs.mkdirSync(home, { recursive: true, mode: 0o700 });
-  try { fs.chmodSync(home, 0o700); } catch {}
-  return home;
-}
-
 function sessionPathFromManager(sessionManager: any, fallback?: string): string | undefined {
   const direct = sessionManager?.getSessionFile?.() ?? sessionManager?.path ?? sessionManager?.sessionPath ?? fallback;
   return typeof direct === 'string' && direct.length > 0 ? direct : undefined;
+}
+
+function parentSessionPathFromContext(ctx: any): string | undefined {
+  const sessionPath = ctx?.sessionManager?.getSessionFile?.();
+  if (typeof sessionPath !== 'string' || sessionPath.length === 0) return undefined;
+  return path.resolve(sessionPath);
 }
 
 function secureSessionPath(sessionPath: string | undefined): void {
@@ -136,18 +147,23 @@ async function createSession(
   ctx: any,
   systemPrompt: string,
   nestedSessionPath?: string,
+  sessionMarker?: { agent: string; taskId?: string; parentSessionPath?: string },
   sessionTitle?: string,
 ) {
   const piSdk = await loadPiSdkModule();
   const { createAgentSession, SessionManager } = piSdk;
-  const sessionDir = resolveNestedSessionsHome();
+  // Use Pi's default session directory so Pi Web and Pi's session picker can
+  // discover this session. The parent path is stored in the session header so
+  // Pi Web can place the child under the originating session.
+  const parentSession = parentSessionPathFromContext(ctx);
   const sessionManager = nestedSessionPath
-    ? await SessionManager.open(nestedSessionPath, sessionDir, cwd)
+    ? await SessionManager.open(nestedSessionPath, undefined, cwd)
     : typeof SessionManager.create === 'function'
-      ? await SessionManager.create(cwd, sessionDir, { cwd })
+      ? await SessionManager.create(cwd, undefined, parentSession ? { parentSession } : undefined)
       : SessionManager.inMemory(cwd);
   const resolvedSessionPath = sessionPathFromManager(sessionManager, nestedSessionPath);
   await secureSessionPathWhenReady(resolvedSessionPath);
+  if (sessionMarker) ensureSubagentSessionMarker(sessionManager, sessionMarker);
   // Apply an orchestrator-supplied title before the nested session starts and
   // before extensions bind, so auto-titling extensions (for example
   // pi-auto-session-titles) see a name already present and skip their extra
@@ -232,7 +248,7 @@ function createLiveSteeringBridge(session: any, piVersion: unknown) {
   };
 }
 
-export const sdkSubagentRunner: SubagentRunner = async ({ definition, task, taskId, parentPiSessionId, context, parentContext, title, cwd, ctx, config, signal, effectiveProfile, nested_session_path, continuation, registerLiveBridge, clearLiveBridge, onQueuedMessageStart, onActivity }) => {
+export const sdkSubagentRunner: SubagentRunner = async ({ definition, task, taskId, parentPiSessionId, context, parentContext, title, cwd, ctx, config, signal, effectiveProfile, nested_session_path, continuation, registerLiveBridge, clearLiveBridge, cancelSubagent, waitForSubagentStop, onQueuedMessageStart, onActivity }) => {
   const profile = effectiveProfile ?? resolveEffectiveSubagentProfile({ agentName: definition.name, definition, config, ctx });
   const preferred = selectedModel({ ctx, definition, profile });
   const effort = profile.effort.value;
@@ -250,11 +266,34 @@ export const sdkSubagentRunner: SubagentRunner = async ({ definition, task, task
 
   async function attempt(model: any) {
     onActivity?.({ message: `starting ${definition.name} with model ${modelLabel(model) ?? 'unknown'}${effort ? ` effort ${effort}` : ''}`, prompt, system_prompt: systemPrompt, effort });
-    const { session, nested_session_path: resolvedNestedSessionPath, pi_version: piVersion } = await createSession(model, cwd, tools, effort, config, ctx, systemPrompt, nested_session_path, title);
+    const parentSessionFile = parentSessionPathFromContext(ctx);
+    const { session, nested_session_path: resolvedNestedSessionPath, pi_version: piVersion } = await createSession(
+      model,
+      cwd,
+      tools,
+      effort,
+      config,
+      ctx,
+      systemPrompt,
+      nested_session_path,
+      { agent: definition.name, taskId, parentSessionPath: parentSessionFile },
+      title,
+    );
     registerLiveBridge?.(createLiveSteeringBridge(session, piVersion));
     onActivity?.({ message: 'nested session ready', nested_session_path: resolvedNestedSessionPath });
-    const unregisterInteractionSession = registerInteractionSubagentSession(session, definition, taskId, parentPiSessionId ?? ctx?.sessionManager?.getSessionId?.());
     const abortBridge = createSessionAbortBridge(session, signal);
+    const unregisterInteractionSession = registerInteractionSubagentSession(
+      session,
+      definition,
+      taskId,
+      parentPiSessionId ?? ctx?.sessionManager?.getSessionId?.(),
+      parentSessionFile,
+      async (reason) => {
+        cancelSubagent?.(reason);
+        await abortBridge.abortSession();
+        await waitForSubagentStop?.();
+      },
+    );
     try {
       if (signal.aborted) {
         await abortBridge.abortSession();

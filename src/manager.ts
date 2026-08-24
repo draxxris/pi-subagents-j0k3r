@@ -836,6 +836,10 @@ export class SubagentManager {
             continuation: continuationPrompt ? { prompt: continuationPrompt, attempt: task.attempt ?? 1, previous_snapshot: previousSnapshot } : undefined,
             registerLiveBridge: (bridge) => this.registerLiveBridge(id, bridge, parentSessionId, task.attempt ?? 1),
             clearLiveBridge: () => this.clearLiveBridge(id, task.attempt ?? 1),
+            cancelSubagent: (reason) => {
+              if (!isTerminalStatus(task.status)) this.cancel(id, reason);
+            },
+            waitForSubagentStop: () => this.awaitRunnerCleanup(id),
             onQueuedMessageStart: () => this.consumeQueuedMessage(id),
             onActivity: (activity) => {
               if (task.status === 'stopping' || isTerminalStatus(task.status)) return;

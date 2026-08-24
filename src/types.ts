@@ -396,6 +396,10 @@ export type SubagentRunner = (input: {
   continuation?: { prompt: string; attempt: number; previous_snapshot?: SubagentThreadSnapshot };
   registerLiveBridge?: (bridge: LiveSteeringBridge) => void;
   clearLiveBridge?: () => void;
+  /** Cancel the owning task when an external host deletes this session. */
+  cancelSubagent?: (reason: string) => void;
+  /** Wait until the owning task has completed its cancellation cleanup. */
+  waitForSubagentStop?: () => Promise<void>;
   onQueuedMessageStart?: () => void;
   onActivity?: (activity: { message: string; output?: string; prompt?: string; system_prompt?: string; transcript?: string; usage?: UsageStats; effort?: ThinkingEffort; thread_snapshot?: SubagentThreadSnapshot; interaction_request?: SubagentInteractionRequest; nested_session_path?: string; pi_retry_attempts?: number; live_activity?: SubagentLiveActivityProjection }) => void;
 }) => Promise<{ result: string; model?: string; effort?: ThinkingEffort; fallback_used?: boolean; usage?: UsageStats; error_metadata?: SubagentErrorMetadata; thread_snapshot?: SubagentThreadSnapshot; interaction_request?: SubagentInteractionRequest; system_prompt?: string; nested_session_path?: string }>;
