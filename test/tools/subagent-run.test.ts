@@ -32,10 +32,47 @@ describe('subagent_run tool', () => {
     expect(runTool.promptSnippet).toContain('omit mode');
     expect(runTool.promptSnippet).toContain('manager');
     expect(runTool.parameters.properties.mode).toBeDefined();
+    expect(runTool.parameters.properties.model).toBeDefined();
     expect(runTool.parameters.properties.title).toBeDefined();
+    expect(runTool.description).toContain('alias');
+    expect(runTool.promptSnippet).toContain('never raw provider/model IDs');
     expect(runTool.description).toContain('session title');
     expect(runTool.description).toContain('no separate model call');
     expect(runTool.promptSnippet).toContain('session title');
+  });
+
+  it('resolves an allowed invocation model alias ahead of the configured profile', async () => {
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    fs.writeFileSync(path.join(env.tmp, '.pi', 'subagents', 'analyst.md'), `---\nname: analyst\ndescription: analyst agent\nallow_model_override: true\ntools:\n  - read\n---\n# Agent`);
+    fs.writeFileSync(path.join(env.tmp, '.pi', 'subagents.json'), JSON.stringify({
+      model_aliases: { sol: 'openai-codex/gpt-5.6-sol' },
+      model_profiles: { analyst: { model: 'profile/default' } },
+    }));
+    const runner = vi.fn(async ({ effectiveProfile }: any) => ({
+      result: 'alias selected',
+      model: effectiveProfile.model.label.replace(/^invocation: /, ''),
+      fallback_used: false,
+    }));
+    const manager = new SubagentManager(runner);
+    let runTool: any;
+    registerSubagentTools({ registerTool: (tool: any) => { if (tool.name === 'subagent_run') runTool = tool; } }, manager);
+
+    const result = await runTool.execute('1', { agent: 'analyst', task: 'use sol', model: 'SOL', mode: 'task' }, undefined, undefined, { cwd: env.tmp });
+
+    expect(result.isError).not.toBe(true);
+    expect(runner).toHaveBeenCalledWith(expect.objectContaining({
+      effectiveProfile: expect.objectContaining({
+        model: expect.objectContaining({
+          value: { provider: 'openai-codex', id: 'gpt-5.6-sol' },
+          source: 'invocation',
+        }),
+      }),
+    }));
+    expect(result.details.results[0]).toMatchObject({
+      model: 'openai-codex/gpt-5.6-sol',
+      model_source: 'invocation',
+    });
   });
 
   it('flows an optional session title through to the runner input and the persisted task record', async () => {
@@ -122,6 +159,26 @@ describe('subagent_run tool', () => {
     } as any);
 
     expect(appendSessionInfo).not.toHaveBeenCalled();
+  });
+
+  it('rejects disallowed or unknown model aliases before launching any batch member', async () => {
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    env.writeAgent('analyst');
+    fs.writeFileSync(path.join(env.tmp, '.pi', 'subagents', 'reviewer.md'), `---\nname: reviewer\ndescription: reviewer agent\nallow_model_override: true\ntools:\n  - read\n---\n# Agent`);
+    fs.writeFileSync(path.join(env.tmp, '.pi', 'subagents.json'), JSON.stringify({
+      model_aliases: { sol: 'openai-codex/gpt-5.6-sol' },
+    }));
+    const runner = vi.fn(env.mockRunner());
+    const manager = new SubagentManager(runner as any);
+
+    await expect(manager.run({ agents: ['reviewer', 'analyst'], task: 'batch', model: 'sol' }, { cwd: env.tmp }))
+      .rejects.toThrow('analyst" does not allow model overrides');
+    expect(runner).not.toHaveBeenCalled();
+
+    await expect(manager.run({ agent: 'reviewer', task: 'single', model: 'terra' }, { cwd: env.tmp }))
+      .rejects.toThrow('Unknown subagent model alias: terra. Available aliases: sol.');
+    expect(runner).not.toHaveBeenCalled();
   });
 
   it('tells the agent to free the chat and wait for automatic notification after background launch', async () => {

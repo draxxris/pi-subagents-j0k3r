@@ -25,7 +25,7 @@ describe('subagent_list_agents tool', () => {
     ]);
 
     const result = await registered.subagent_list_agents.execute('1', {}, undefined, undefined, { cwd: env.tmp });
-    expect(result.content[0].text).toContain('analyst · model: default/current · effort: default/current · tools:');
+    expect(result.content[0].text).toContain('analyst · model: default/current · effort: default/current · model override: disabled · tools:');
     expect(result.details.agents).toHaveLength(1);
     expect(result.details.agents[0]).toMatchObject({ name: 'analyst' });
   });
@@ -46,18 +46,39 @@ describe('subagent_list_agents tool', () => {
     }));
   });
 
+  it('lists whether model override is allowed and advertises configured aliases', async () => {
+    fs.writeFileSync(path.join(env.tmp, '.pi', 'subagents', 'analyst.md'), `---\nname: analyst\ndescription: analyst agent\nallow_model_override: true\ntools:\n  - read\n---\n# Analyst\n`);
+    fs.writeFileSync(path.join(env.tmp, '.pi', 'subagents.json'), JSON.stringify({
+      model_aliases: {
+        sol: 'openai-codex/gpt-5.6-sol',
+        luna: 'openai-codex/gpt-5.6-luna',
+      },
+    }));
+    const tool = createSubagentListAgentsTool(new SubagentManager(env.mockRunner() as any));
+
+    const result = await tool.execute('1', {}, undefined, undefined, { cwd: env.tmp });
+
+    expect((result.details as any).agents[0]).toMatchObject({
+      name: 'analyst',
+      allow_model_override: true,
+      model_aliases: ['luna', 'sol'],
+    });
+    expect(result.content[0].text).toContain('model override: allowed (luna, sol)');
+  });
+
   it('shows five agents when collapsed and dim tools below every agent when expanded', async () => {
     const agents = Array.from({ length: 7 }, (_, index) => ({
       name: `agent-${index + 1}`,
       model: index === 0 ? { provider: 'openai', id: 'gpt-5.4' } : undefined,
       effort: index === 0 ? 'high' : undefined,
       tools: ['read', 'memory_search'],
+      allow_model_override: false,
     }));
     const tool = createSubagentListAgentsTool({ listAgents: () => agents } as any);
     const result = await tool.execute('1', {}, undefined, undefined, { cwd: env.tmp });
     const theme = { fg: (name: string, text: string) => name === 'dim' ? `<dim>${text}</dim>` : text };
 
-    expect(result.content[0].text).toContain('agent-7 · model: default/current · effort: default/current · tools: read, memory_search');
+    expect(result.content[0].text).toContain('agent-7 · model: default/current · effort: default/current · model override: disabled · tools: read, memory_search');
 
     const collapsed = tool.renderResult(result, { expanded: false }, theme).render(200).join('\n');
     const expanded = tool.renderResult(result, { expanded: true }, theme).render(200).join('\n');

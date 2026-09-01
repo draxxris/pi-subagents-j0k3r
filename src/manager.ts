@@ -10,7 +10,7 @@ import { SubagentHistoryStore } from './history.js';
 import { publishInteractionResponse, sanitizeInteractionTransportText } from './interaction-channel.js';
 import { classifyThrownError, deriveErrorString, enrichErrorMetadata, normalizeErrorMetadata, SubagentStructuredError } from './error-metadata.js';
 import { assertParentContextFits, buildParentContextText, parentSessionPathFromContext } from './parent-context.js';
-import { profileSourceLabel, resolveEffectiveSubagentProfile } from './profile-resolver.js';
+import { profileSourceLabel, resolveEffectiveSubagentProfile, resolveSubagentRunProfile } from './profile-resolver.js';
 import type { SubagentInteractionRequest, SubagentInteractionResponse } from './interaction-channel.js';
 import type { EffectiveSubagentProfile, LiveSteeringBridge, ModelRef, SendMessageResult, SubagentContinueInput, SubagentDefinition, SubagentErrorMetadata, SubagentRunInput, SubagentRunResult, SubagentsConfig, SubagentRunner, SubagentTask } from './types.js';
 
@@ -318,6 +318,8 @@ export class SubagentManager {
         tools: definition.tools,
         model: profile.model.value,
         effort: profile.effort.value,
+        allow_model_override: definition.allow_model_override ?? false,
+        model_aliases: definition.allow_model_override ? Object.keys(config.model_aliases ?? {}).sort() : [],
       };
     });
   }
@@ -546,34 +548,42 @@ export class SubagentManager {
 
     const definitions = new Map(loadSubagents(cwd).map((definition) => [definition.name, definition]));
     const limiter = this.limiter(cwd, config.max_concurrency);
-    // Resolve + preflight injected parent context BEFORE launching anything so
-    // an oversize transcript rejects the whole call immediately with no partial launches.
+    // Resolve model profiles first (honors invocation-time alias overrides),
+    // then resolve + preflight injected parent context BEFORE launching anything
+    // so an oversize transcript rejects the whole call immediately with no partial launches.
+    const selections = agents.map((agent) => {
+      const definition = definitions.get(agent.toLowerCase());
+      if (!definition) throw new Error(`Subagent not found: ${agent}`);
+      const effectiveProfile = resolveSubagentRunProfile({
+        agentName: definition.name,
+        definition,
+        config,
+        ctx,
+        modelAlias: (input as { model?: string }).model,
+      });
+      return { definition, effectiveProfile };
+    });
     let parentContext: string | undefined;
     if (input.includeParentContext) {
       const sessionPath = parentSessionPathFromContext(ctx);
       if (!sessionPath) throw new Error('includeParentContext requires a persisted parent session, but no parent session file was found.');
       parentContext = buildParentContextText(sessionPath).text;
-      for (const agent of agents) {
-        const definition = definitions.get(agent.toLowerCase());
-        if (!definition) throw new Error(`Subagent not found: ${agent}`);
-        const profile = resolveEffectiveSubagentProfile({ agentName: definition.name, definition, config, ctx });
+      for (const { definition, effectiveProfile } of selections) {
         assertParentContextFits({
           parentText: parentContext,
           systemPrompt: definition.instructions,
           task: input.task,
           context: input.context,
           ctx,
-          profile,
+          profile: effectiveProfile,
           agentName: definition.name,
         });
       }
     }
     let ids: string[] = [];
     const notifyUpdate = () => onTaskUpdate?.(ids.map((id) => this.tasks.get(id)!).filter(Boolean));
-    ids = agents.map((agent) => {
-      const definition = definitions.get(agent.toLowerCase());
-      if (!definition) throw new Error(`Subagent not found: ${agent}`);
-      return this.startOne(definition, input.task, input.context, explicitMode, ctx, config, parentSignal, notifyUpdate, limiter, parentContext, input.includeParentContext, (input as { title?: string }).title);
+    ids = selections.map(({ definition, effectiveProfile }) => {
+      return this.startOne(definition, input.task, input.context, explicitMode, ctx, config, parentSignal, notifyUpdate, limiter, parentContext, input.includeParentContext, effectiveProfile, (input as { title?: string }).title);
     });
     notifyUpdate();
     const launched = ids.map((id) => this.tasks.get(id)!).filter(Boolean);
@@ -749,10 +759,11 @@ export class SubagentManager {
     limiter = createLimiter(1),
     parentContext?: string,
     includeParentContext?: boolean,
+    resolvedProfile?: EffectiveSubagentProfile,
     title?: string,
   ): string {
     const session_id = sessionIdFromContext(ctx);
-    const effectiveProfile = resolveEffectiveSubagentProfile({ agentName: definition.name, definition, config, ctx });
+    const effectiveProfile = resolvedProfile ?? resolveEffectiveSubagentProfile({ agentName: definition.name, definition, config, ctx });
     const effectiveMode = resolveEffectiveSubagentMode({ invocationMode: mode, definition, config });
     const cleanTitle = cleanSessionTitle(title);
     const task: SubagentTask = {

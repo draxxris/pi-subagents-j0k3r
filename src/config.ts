@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { isSubagentToolName } from './tool-patterns.js';
-import type { ModelRef, SubagentDefinition, SubagentDefinitionScope, SubagentMode, SubagentModelProfile, SubagentModelProfiles, SubagentSessionResources, SubagentsConfig, ThinkingEffort } from './types.js';
+import type { ModelRef, SubagentDefinition, SubagentDefinitionScope, SubagentMode, SubagentModelAliases, SubagentModelProfile, SubagentModelProfiles, SubagentSessionResources, SubagentsConfig, ThinkingEffort } from './types.js';
 
 const DEFAULT_TOOLS = ['read', 'memory_context', 'memory_search', 'memory_recall', 'memory_get'];
 const DEFAULT_MAX_CONCURRENCY = 5;
@@ -220,6 +220,35 @@ function parseModelProfiles(value: unknown): SubagentModelProfiles {
   return profiles;
 }
 
+function parseModelAliases(value: unknown): SubagentModelAliases {
+  if (!isPlainObject(value)) return {};
+  const aliases: SubagentModelAliases = {};
+  for (const [name, raw] of Object.entries(value)) {
+    const normalizedName = name.trim().toLowerCase();
+    if (!normalizedName) continue;
+    let rawModel: unknown;
+    let rawEffort: unknown;
+    if (typeof raw === 'string') {
+      rawModel = raw;
+    } else if (isPlainObject(raw)) {
+      if ('model' in raw) {
+        rawModel = (raw as Record<string, unknown>).model;
+        rawEffort = (raw as Record<string, unknown>).effort ?? (raw as Record<string, unknown>).thinking_level ?? (raw as Record<string, unknown>).thinkingLevel;
+      } else {
+        rawModel = raw;
+        rawEffort = (raw as Record<string, unknown>).effort ?? (raw as Record<string, unknown>).thinking_level ?? (raw as Record<string, unknown>).thinkingLevel;
+      }
+    } else {
+      continue;
+    }
+    const model = parseModel(rawModel);
+    if (!model) continue;
+    const effort = parseEffort(rawEffort);
+    aliases[normalizedName] = effort ? { model, effort } : { model };
+  }
+  return aliases;
+}
+
 function serializeModelRef(model: ModelRef): string {
   return `${model.provider}/${model.id}`;
 }
@@ -237,11 +266,14 @@ export function readSubagentsConfig(cwd: string): SubagentsConfig {
   const raw = { ...globalRaw, ...projectRaw };
   const globalModelProfiles = parseModelProfiles(globalRaw.model_profiles);
   const projectModelProfiles = parseModelProfiles(projectRaw.model_profiles);
+  const globalModelAliases = parseModelAliases(globalRaw.model_aliases);
+  const projectModelAliases = parseModelAliases(projectRaw.model_aliases);
   return {
     default_model: parseModel(raw.default_model),
     default_effort: parseEffort(raw.default_effort ?? raw.default_thinking_level ?? raw.thinkingLevel),
     default_mode: parseDefaultMode(raw.default_mode),
     model_profiles: { ...globalModelProfiles, ...projectModelProfiles },
+    model_aliases: { ...globalModelAliases, ...projectModelAliases },
     global_model_profiles: globalModelProfiles,
     project_model_profiles: projectModelProfiles,
     timeout_ms: positiveInteger(raw.timeout_ms, DEFAULT_TIMEOUT_MS),
@@ -342,7 +374,18 @@ function loadSubagentsFromDir(
         return [];
       }
       const tools = sanitizeTools(Array.isArray(data.tools) ? data.tools.map(String) : DEFAULT_TOOLS);
-      return [{ name, description, filePath, instructions: body.trim(), model: parseModel(data.model), effort: parseEffort(data.effort ?? data.thinking_level ?? data.thinkingLevel), subagent_mode: rawSubagentMode, tools, scope }];
+      return [{
+        name,
+        description,
+        filePath,
+        instructions: body.trim(),
+        model: parseModel(data.model),
+        effort: parseEffort(data.effort ?? data.thinking_level ?? data.thinkingLevel),
+        allow_model_override: parseBoolean(data.allow_model_override ?? data.allowModelOverride, false),
+        subagent_mode: rawSubagentMode,
+        tools,
+        scope,
+      }];
     });
 }
 

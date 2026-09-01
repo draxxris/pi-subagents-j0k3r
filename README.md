@@ -108,6 +108,7 @@ tools:
   - context7_search_library
 model: anthropic/claude-sonnet-4-5
 effort: low
+allow_model_override: true
 ---
 
 # Discovery Subagent
@@ -124,6 +125,7 @@ Supported frontmatter:
 | `tools` | Tool allowlist for the subagent. Accepts either a comma-separated inline list or a multiline YAML list, but never both in one definition. Entries support asterisk patterns such as `ahk_*`, which match available tool names at runtime. When omitted, the definition gets the built-in default tool list. Configured `default_tools` is used by the runner when a definition has an empty tool list. |
 | `model` | Optional model as `provider/model-id`. |
 | `effort`, `thinking_level`, `thinkingLevel` | Optional thinking effort: `off`, `minimal`, `low`, `medium`, `high`, `xhigh`. |
+| `allow_model_override` | Opt in to selecting a configured `model_aliases` entry through `subagent_run.model`. Defaults to `false`. Raw provider/model IDs are never accepted by `subagent_run`. |
 | `subagent_mode` | Optional default execution mode for this definition: `task` or `background`. |
 
 ### Tool allowlist formats
@@ -227,6 +229,10 @@ The same JSON shape is valid globally or project-locally; place it only in the s
   "history_panel_shortcut": "ctrl+,",
   "detail_cancel_shortcut": "x",
   "background_handoff_shortcut": "ctrl+h",
+  "model_aliases": {
+    "sol": "openai-codex/gpt-5.6-sol",
+    "luna": { "model": "openai-codex/gpt-5.6-luna", "effort": "high" }
+  },
   "default_tools": [
     "read",
     "memory_context",
@@ -256,6 +262,7 @@ The same JSON shape is valid globally or project-locally; place it only in the s
 | `default_mode` | `task` | Fallback execution mode when neither the invocation nor the selected definition sets one. Accepts `task` or `background`. |
 | `enable_continue` | `false` | Opt-in gate for new continuations and `subagent_continue` tool exposure. Project values override global values; changing it requires `/reload` or restart before tool availability changes. |
 | `model_profiles` | `{}` | Per-agent model/effort overrides scoped to matching definitions. Project-local profiles apply to project-local definitions; global profiles apply to global definitions. |
+| `model_aliases` | `{}` | Named models (with optional `effort`) accepted by `subagent_run.model` for definitions with `allow_model_override: true`. Each value may be a `provider/model-id` string or `{ "model": "provider/model-id", "effort": "high" }` (also accepts `thinking_level`/`thinkingLevel` and `{provider,id}` objects). Global and project aliases are merged by normalized alias name, with project entries winning. |
 | `timeout_ms` | `1200000` | Total timeout per subagent task (20 minutes). |
 | `stall_timeout_ms` | `240000` | Inactivity timeout for a subagent session (4 minutes). |
 | `max_concurrency` | `5` | Max concurrent subagent tasks per cwd/config pair. |
@@ -290,19 +297,21 @@ any tool starting with subagent_
 
 Effective model resolution order:
 
-1. `model_profiles[agent].model` from the config matching the selected definition scope: project-local for project definitions, global for global definitions
-2. subagent frontmatter `model`
-3. `default_model`
-4. current orchestrator model
-5. unresolved
+1. `subagent_run.model` resolved through `model_aliases`, only when the definition sets `allow_model_override: true`
+2. `model_profiles[agent].model` from the config matching the selected definition scope: project-local for project definitions, global for global definitions
+3. subagent frontmatter `model`
+4. `default_model`
+5. current orchestrator model
+6. unresolved
 
 Effective effort resolution order:
 
-1. `model_profiles[agent].effort` from the config matching the selected definition scope: project-local for project definitions, global for global definitions
-2. subagent frontmatter `effort` / `thinking_level` / `thinkingLevel`
-3. `default_effort`
-4. current orchestrator thinking level
-5. unresolved
+1. `subagent_run.model` alias `effort`, when the alias entry defines `effort` and the definition sets `allow_model_override: true`
+2. `model_profiles[agent].effort` from the config matching the selected definition scope: project-local for project definitions, global for global definitions
+3. subagent frontmatter `effort` / `thinking_level` / `thinkingLevel`
+4. `default_effort`
+5. current orchestrator thinking level
+6. unresolved
 
 If a configured model cannot be resolved, the runner reports an error. If a selected model fails or stalls and the current orchestrator model is different, the runner falls back to the current model.
 
@@ -360,6 +369,7 @@ Parameters:
   context?: string;
   mode?: "task" | "background";
   includeParentContext?: boolean;
+  model?: string; // configured alias, such as "sol"
   title?: string; // short display name for the nested subagent session(s)
 }
 ```
@@ -373,6 +383,7 @@ Behavior:
 - Background launch results return task IDs immediately. The session path appears in the later completion notification and in `subagent_status` or `subagent_result` output.
 - When `mode` is omitted, a mixed batch can return `mode: "mixed"` plus `waited_task_ids`, `background_task_ids`, and per-member `effective_mode` rows.
 - Multiple agents can run from one request with `agents`.
+- `model` selects a configured alias for the entire invocation. Every selected definition must set `allow_model_override: true`; otherwise the whole request is rejected before any member launches. Use `subagent_list_agents` to see override permission and available aliases.
 - `title` sets a display name on the nested subagent session(s) directly, before the session starts and before extensions bind. No separate model call is made to name the session: the orchestrator already has the context, so auto-titling extensions (for example `pi-auto-session-titles`) see the name present and skip their own generation. The title is normalized (whitespace collapsed, control characters stripped, capped at 100 characters) and also stored on the task record so it appears in history, `subagent_status`, and `subagent_result`. Continuations keep the persisted session name.
 - `includeParentContext: true` injects the parent transcript in code (last compaction summary plus everything after it; full history when never compacted) before `## delegated task`, so the parent model only authors `true` instead of pasting history. The whole call is rejected immediately with a `context_overflow` error when the injected text obviously exceeds the subagent model's `contextWindow` (heuristic chars/4 estimate plus reserved output budget; unknown windows never reject).
 - Double Escape during task-mode execution cancels running subagents and aborts the main turn.
@@ -386,8 +397,12 @@ Examples:
 // Explicit override: force every selected member into background mode.
 { agents: ["analyst", "reviewer"], task: "review the plan", mode: "background" }
 
+// Model override: resolve "sol" through model_aliases.
+{ agent: "reviewer", task: "review the plan", model: "sol" }
+
 // Session title: name the nested session directly, no title model call.
 { agent: "reviewer", task: "review the plan", title: "Review the launch plan" }
+
 // Mixed omitted-mode result shape.
 {
   mode: "mixed",

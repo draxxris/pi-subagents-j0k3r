@@ -63,3 +63,37 @@ export function resolveEffectiveSubagentProfile(input: {
     effort: resolveEffort(definition, input.config, input.ctx),
   };
 }
+
+export function resolveSubagentRunProfile(input: {
+  agentName: string;
+  definition: SubagentDefinition;
+  config: SubagentsConfig;
+  ctx: any;
+  modelAlias?: string;
+}): EffectiveSubagentProfile {
+  const resolved = resolveEffectiveSubagentProfile(input);
+  if (input.modelAlias === undefined) return resolved;
+  if (!input.definition.allow_model_override) {
+    throw new Error(`Subagent "${input.definition.name}" does not allow model overrides. Set allow_model_override: true in its frontmatter to enable them.`);
+  }
+  const alias = input.modelAlias.trim().toLowerCase();
+  const rawEntry: any = input.config.model_aliases?.[alias];
+  if (!alias || !rawEntry) {
+    const available = Object.keys(input.config.model_aliases ?? {}).sort();
+    const suffix = available.length ? ` Available aliases: ${available.join(', ')}.` : ' No model aliases are configured.';
+    throw new Error(`Unknown subagent model alias: ${input.modelAlias}.${suffix}`);
+  }
+  // Support both new {model, effort} shape and legacy bare ModelRef for backward compat
+  const aliasModel: ModelRef = rawEntry.model ?? rawEntry;
+  const aliasEffort: ThinkingEffort | undefined = rawEntry.effort;
+  if (!aliasModel?.provider || !aliasModel?.id) {
+    const available = Object.keys(input.config.model_aliases ?? {}).sort();
+    const suffix = available.length ? ` Available aliases: ${available.join(', ')}.` : ' No model aliases are configured.';
+    throw new Error(`Unknown subagent model alias: ${input.modelAlias}.${suffix}`);
+  }
+  return {
+    ...resolved,
+    model: field('invocation', aliasModel, modelLabel),
+    effort: aliasEffort ? field('invocation', aliasEffort, String) : resolved.effort,
+  };
+}

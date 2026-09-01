@@ -6,6 +6,8 @@ export type ListedSubagent = {
   model?: ModelRef;
   effort?: ThinkingEffort;
   tools: string[];
+  allow_model_override?: boolean;
+  model_aliases?: string[];
 };
 
 function modelLabel(model?: ModelRef): string {
@@ -13,7 +15,10 @@ function modelLabel(model?: ModelRef): string {
 }
 
 function summary(agent: ListedSubagent): string {
-  return `${agent.name} · model: ${modelLabel(agent.model)} · effort: ${agent.effort ?? 'default/current'}`;
+  const override = agent.allow_model_override
+    ? `allowed (${agent.model_aliases?.join(', ') || 'no aliases configured'})`
+    : 'disabled';
+  return `${agent.name} · model: ${modelLabel(agent.model)} · effort: ${agent.effort ?? 'default/current'} · model override: ${override}`;
 }
 
 export function formatSubagentList(agents: ListedSubagent[], includeTools: boolean): string {

@@ -134,13 +134,14 @@ describe('config and workflow loading', () => {
   });
 
   it('loads agent names from markdown files and config default model/effort', () => {
-    fs.writeFileSync(path.join(tmp, '.pi', 'subagents', 'analyst.md'), `---\nname: analyst\ndescription: analyst agent\nmodel: anthropic/claude-sonnet-4-5\neffort: high\ntools:\n  - read\n---\n# Agent`);
+    fs.writeFileSync(path.join(tmp, '.pi', 'subagents', 'analyst.md'), `---\nname: analyst\ndescription: analyst agent\nmodel: anthropic/claude-sonnet-4-5\neffort: high\nallow_model_override: true\ntools:\n  - read\n---\n# Agent`);
     fs.writeFileSync(path.join(tmp, '.pi', 'subagents.json'), JSON.stringify({ default_model: 'openai/gpt-5.2', default_effort: 'medium', stall_timeout_ms: 10 }));
     const agents = loadSubagents(tmp);
     const config = readSubagentsConfig(tmp);
     expect(agents.map((a) => a.name)).toEqual(['analyst']);
     expect(agents[0].model).toEqual({ provider: 'anthropic', id: 'claude-sonnet-4-5' });
     expect(agents[0].effort).toBe('high');
+    expect(agents[0].allow_model_override).toBe(true);
     expect(config.default_model).toEqual({ provider: 'openai', id: 'gpt-5.2' });
     expect(config.default_effort).toBe('medium');
     expect(config.stall_timeout_ms).toBe(10);
@@ -330,6 +331,32 @@ describe('config and workflow loading', () => {
       invalideffort: { model: { provider: 'openai', id: 'gpt-5.2' } },
       invalidmodel: { effort: 'low' },
       projectonly: { model: { provider: 'anthropic', id: 'claude-opus-4-5' }, effort: 'xhigh' },
+    });
+  });
+
+  it('merges normalized model_aliases from global and project config with project precedence', () => {
+    const agentDir = path.join(tmp, 'global-agent');
+    fs.mkdirSync(agentDir, { recursive: true });
+    fs.writeFileSync(path.join(agentDir, 'subagents.json'), JSON.stringify({
+      model_aliases: {
+        Sol: 'openai-codex/gpt-5.6-sol',
+        shared: 'global/model',
+        invalid: 'missing-provider',
+      },
+    }));
+    fs.writeFileSync(path.join(tmp, '.pi', 'subagents.json'), JSON.stringify({
+      model_aliases: {
+        shared: 'project/model',
+        Luna: { provider: 'openai-codex', id: 'gpt-5.6-luna' },
+      },
+    }));
+
+    const config = withAgentDir(agentDir, () => readSubagentsConfig(tmp));
+
+    expect(config.model_aliases).toEqual({
+      sol: { model: { provider: 'openai-codex', id: 'gpt-5.6-sol' } },
+      shared: { model: { provider: 'project', id: 'model' } },
+      luna: { model: { provider: 'openai-codex', id: 'gpt-5.6-luna' } },
     });
   });
 

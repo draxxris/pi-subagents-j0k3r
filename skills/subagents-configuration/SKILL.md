@@ -1,6 +1,6 @@
 ---
 name: subagents-configuration
-description: "configure Pi Subagents with explicit global/project scope, markdown definitions, cascaded subagents.json defaults, opt-in continuation, model profiles, execution modes, tool allowlists, shortcuts, history, and live background steering guidance."
+description: "configure Pi Subagents with explicit global/project scope, markdown definitions, cascaded subagents.json defaults, opt-in continuation, model profiles and aliases, execution modes, tool allowlists, shortcuts, history, and live background steering guidance."
 license: Apache-2.0
 metadata:
   author: j0k3r
@@ -16,7 +16,7 @@ Use this block as the machine-readable source for `.pi/skill-registry.json` gene
 ```json
 {
   "category": "workflow",
-  "domains": ["subagents-configuration", "subagent-config", "model-profile-config", "execution-mode-config", "tool-allowlist-config", "subagent-history-config", "subagent-shortcut-config", "live-steering-config"],
+  "domains": ["subagents-configuration", "subagent-config", "model-profile-config", "model-alias-config", "execution-mode-config", "tool-allowlist-config", "subagent-history-config", "subagent-shortcut-config", "live-steering-config"],
   "triggers": {
     "paths": [
       ".pi/agents/**/*.md",
@@ -55,6 +55,9 @@ Use this block as the machine-readable source for `.pi/skill-registry.json` gene
       "subagent config",
       "subagents.json",
       "model profiles configuration",
+      "model aliases configuration",
+      "model_aliases",
+      "allow_model_override",
       "tool allowlist configuration",
       "subagent history configuration",
       "background handoff shortcut",
@@ -92,7 +95,7 @@ Field conventions:
 
 ## Activation Contract
 
-Use this skill only when the user asks how to configure Pi Subagents or when editing/reviewing subagent configuration files: package installation/update settings, markdown subagent definitions, project/global `subagents.json`, model profiles, allowed tools, history settings, execution defaults, opt-in continuation, continuation modes, background handoff shortcuts, lean resources, live background steering requirements, runtime task/background behavior, and generic interaction handoff as configuration topics only.
+Use this skill only when the user asks how to configure Pi Subagents or when editing/reviewing subagent configuration files: package installation/update settings, markdown subagent definitions, project/global `subagents.json`, model profiles, model aliases and override permission, allowed tools, history settings, execution defaults, opt-in continuation, continuation modes, background handoff shortcuts, lean resources, live background steering requirements, runtime task/background behavior, and generic interaction handoff as configuration topics only.
 
 Do not load this skill for ordinary subagent delegation/use (`subagent_run`, task status/result polling), extension implementation work, task history browsing, or editing this skill file; those are not configuration questions.
 
@@ -115,6 +118,7 @@ Do not load this skill for ordinary subagent delegation/use (`subagent_run`, tas
 - When effective `enable_continue` is `false`, `subagent_continue` is not registered, direct or stale continuation attempts must be described as generic unavailable behavior, historical task and continuation records remain visible, and failed/cancelled/interrupted/stopping terminal results plus terminal background notifications must not recommend continuation or mention `subagent_continue`.
 - `model_profiles` are scoped to the matching subagent definition source: project-local profile entries in `.pi/subagents.json` apply to project-local definitions, while global profile entries apply to global definitions. If a project definition overrides a global definition with the same normalized name, the project definition and its project-local profile win.
 - Prefer configuring subagent `model` and `effort` under `model_profiles` in the config matching the definition scope: project-local definitions use `.pi/subagents.json`; global definitions use `$PI_CODING_AGENT_DIR/subagents.json` or `~/.pi/agent/subagents.json`. Markdown definitions should usually contain identity, description, tool allowlist, and behavioral instructions only.
+- Invocation-time model overrides must use a configured `model_aliases` key; never put an unrestricted provider/model ID into `subagent_run.model`. Enable the capability only on intended definitions with `allow_model_override: true`. Global and project aliases merge by normalized name, with project entries winning.
 - Nested subagent sessions should use `session_resources: "lean"` by default so the subagent markdown body becomes the nested session system prompt, the delegated user prompt contains only orchestrator context/task, and workflow skills, prompt templates, themes, context files, and startup context injections are not auto-loaded.
 - In lean mode, extensions are loaded for allowlisted tools and tool-safety hooks only; prompt/context lifecycle hooks such as `before_agent_start` and `context` must not inject hidden messages into subagent turns.
 - Subagent task history is stored globally under data storage, but rows remain project-scoped by `cwd`; history stores delegated prompt and subagent system prompt separately.
@@ -149,6 +153,10 @@ Recommended `subagents.json` starter:
   "background_handoff_shortcut": "ctrl+h",
   "default_mode": "task",
   "enable_continue": false,
+  "model_aliases": {
+    "sol": "openai-codex/gpt-5.6-sol",
+    "luna": { "model": "openai-codex/gpt-5.6-luna", "effort": "high" }
+  },
   "default_tools": [
     "read",
     "memory_context",
@@ -166,6 +174,7 @@ Markdown subagent frontmatter pattern:
 ---
 name: discovery
 description: investigates isolated ideas, code, documentation, and context7 before deciding next workflow
+allow_model_override: true
 tools:
   - read
   - memory_search
@@ -180,7 +189,8 @@ Tool entries can use an asterisk wildcard. For example, `ahk_*` allows every ava
 
 Configure model/effort routing separately in the matching local or global `subagents.json` when needed. If no matching profile/default is configured, the subagent inherits the current orchestrator model and thinking effort.
 
-`subagent_run.title` is optional: it names the nested session(s) directly from context the orchestrator already has, replacing the auto-titler's separate model call.
+For invocation-time model selection, configure short names under `model_aliases`, opt in individual definitions with `allow_model_override: true`, and pass only the alias to `subagent_run.model`. Each alias may be a `provider/model-id` string or `{ "model": "provider/model-id", "effort": "high" }` (also accepts `thinking_level`/`thinkingLevel` and `{provider,id}` objects); when `effort` is set it overrides the resolved effort with source `invocation`. `subagent_list_agents` reports whether each definition permits overrides and which aliases are available. A multi-agent invocation is rejected before launch unless every selected definition permits the override. `subagent_run.title` is optional and orthogonal to model selection: it names the nested session(s) directly from context the orchestrator already has, replacing the auto-titler's separate model call.
+
 ```json
 {
   "model_profiles": {
@@ -194,10 +204,11 @@ Configure model/effort routing separately in the matching local or global `subag
 
 Model/effort resolution order:
 
-1. `model_profiles[agentName]` from the config matching the selected definition scope: `.pi/subagents.json` for project-local definitions, or `$PI_CODING_AGENT_DIR/subagents.json` / `~/.pi/agent/subagents.json` for global definitions.
-2. Markdown frontmatter `model` / `effort` only for explicit per-file overrides.
-3. `default_model` / `default_effort` from effective `subagents.json` config.
-4. Current orchestrator model / effort.
+1. `subagent_run.model` resolved through `model_aliases`, when frontmatter sets `allow_model_override: true` (model always; effort only when the alias entry defines it).
+2. `model_profiles[agentName]` from the config matching the selected definition scope: `.pi/subagents.json` for project-local definitions, or `$PI_CODING_AGENT_DIR/subagents.json` / `~/.pi/agent/subagents.json` for global definitions.
+3. Markdown frontmatter `model` / `effort` only for explicit per-file overrides.
+4. `default_model` / `default_effort` from effective `subagents.json` config.
+5. Current orchestrator model / effort.
 
 Execution-mode resolution order:
 
@@ -220,6 +231,7 @@ Continuation-mode resolution order (when `enable_continue` is enabled):
 - If the requested local value differs from an existing global value, explain that local wins and ask whether the user wants an override or wants to change the global default instead.
 - If the user asks for a default execution mode without naming one, ask whether omitted runs should wait in `task` or free the chat in `background`; explain automatic notification behavior before they choose.
 - If the user asks for model profiles, ask which subagent definitions are global versus project-local, then write profiles to the matching config scope.
+- If the user asks for invocation-time model choice, confirm which definitions may be overridden, add aliases in the approved config scope, and opt in only those definitions.
 - If the user requests a new definition but does not specify `agents` versus `subagents`, recommend `subagents` and ask only when compatibility with another harness may require `agents`.
 - If the subagent will modify files, run bash, or write memory, ask whether a full SDD workflow or stricter review is required.
 - If the subagent needs human input, require a structured `interaction_required` request with enough prompt, payload, and expected-response data for the parent to answer.
@@ -234,7 +246,7 @@ Continuation-mode resolution order (when `enable_continue` is enabled):
 5. Summarize existing effective values, what will be inherited, and exactly which file would change; ask for any missing product choice such as `task` versus `background` before editing.
 6. For new subagents, choose lowercase kebab-case names and clear trigger-focused descriptions. Write definitions in English by default; use another language only when explicitly requested. Prefer `subagents` unless compatibility requires `agents`.
 7. Set minimal tool allowlists; remove any `subagent_*` entries.
-8. Configure `model_profiles` in the config matching definition scope. Configure `default_model`, `default_effort`, `default_mode`, and `enable_continue` only in the user-approved scope. Explain model/effort inheritance, execution-mode precedence, and that `enable_continue` needs `/reload` or restart before tool exposure changes.
+8. Configure `model_profiles` in the config matching definition scope. Configure `model_aliases`, `default_model`, `default_effort`, `default_mode`, and `enable_continue` only in the user-approved scope. Put `allow_model_override: true` only on definitions approved for invocation-time alias selection. Explain model/effort inheritance, execution-mode precedence, and that `enable_continue` needs `/reload` or restart before tool exposure changes.
 9. Never add the removed UI key `mode: "opencode" | "claude"`. Configure history and handoff independently with `history_panel_shortcut`, `detail_cancel_shortcut`, and `background_handoff_shortcut`.
 10. Configure `debug: true` only for temporary diagnostics; keep it false by default and explain that logs are written under the executing project's `.pi` directory.
 11. Validate JSON syntax and Markdown frontmatter/body structure. Preserve unrelated existing keys and definitions.

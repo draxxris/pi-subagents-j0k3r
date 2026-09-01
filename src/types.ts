@@ -12,9 +12,14 @@ export type SubagentModelProfile = {
 };
 
 export type SubagentModelProfiles = Record<string, SubagentModelProfile>;
+export type SubagentModelAlias = {
+  model: ModelRef;
+  effort?: ThinkingEffort;
+};
+export type SubagentModelAliases = Record<string, SubagentModelAlias>;
 export type SubagentDefinitionScope = 'global' | 'project';
 
-export type ProfileValueSource = 'profile' | 'definition' | 'default' | 'orchestrator' | 'unresolved';
+export type ProfileValueSource = 'invocation' | 'profile' | 'definition' | 'default' | 'orchestrator' | 'unresolved';
 
 export type ResolvedProfileField<T> = {
   value?: T;
@@ -35,6 +40,7 @@ export type SubagentDefinition = {
   instructions: string;
   model?: ModelRef;
   effort?: ThinkingEffort;
+  allow_model_override?: boolean;
   subagent_mode?: SubagentMode;
   tools: string[];
   scope?: SubagentDefinitionScope;
@@ -52,6 +58,7 @@ export type SubagentsConfig = {
   default_effort?: ThinkingEffort;
   default_mode?: SubagentMode;
   model_profiles: SubagentModelProfiles;
+  model_aliases?: SubagentModelAliases;
   global_model_profiles?: SubagentModelProfiles;
   project_model_profiles?: SubagentModelProfiles;
   timeout_ms: number;
@@ -75,6 +82,7 @@ export type SubagentRunInput = {
   mode?: SubagentMode;
   /** Inject the parent session transcript (last compaction summary + tail, or everything) in code. Parent model only authors `true`. */
   includeParentContext?: boolean;
+  model?: string;
   /** Short display name applied to the nested subagent session(s) without a separate model call. */
   title?: string;
 };

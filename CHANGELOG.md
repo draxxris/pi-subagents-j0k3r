@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- Added opt-in invocation-time model overrides for `subagent_run`, using frontmatter `allow_model_override`, cascaded `model_aliases` configuration, alias visibility in `subagent_list_agents`, and pre-launch validation for single and batched delegation.
+- Extended `model_aliases` entries to accept an optional `effort` (`thinking_level`/`thinkingLevel`) so an alias such as `{ "model": "provider/id", "effort": "high" }` can override `effort` with source `invocation` when that alias is selected.
+
+
 ## 1.5.1
 
 ### Fixed
