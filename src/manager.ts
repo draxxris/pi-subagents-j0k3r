@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { loadSubagents, parseEffort, parseModel, readSubagentsConfig, resolveEffectiveSubagentMode } from './config.js';
 import { resolveContinuationEffectiveMode } from './continuation-mode.js';
 import { writeSubagentsDebugLog } from './debug.js';
+import { cleanSessionTitle } from './session-metadata.js';
 import { sdkSubagentRunner } from './runner.js';
 import { SubagentHistoryStore } from './history.js';
 import { publishInteractionResponse, sanitizeInteractionTransportText } from './interaction-channel.js';
@@ -282,6 +283,7 @@ type LaunchAttemptInput = {
   nestedSessionPath?: string;
   previousSnapshot?: SubagentTask['thread_snapshot'];
   continuationPrompt?: string;
+  title?: string;
   parentSignal?: AbortSignal;
   onTaskUpdate?: () => void;
   limiter: ReturnType<typeof createLimiter>;
@@ -571,7 +573,7 @@ export class SubagentManager {
     ids = agents.map((agent) => {
       const definition = definitions.get(agent.toLowerCase());
       if (!definition) throw new Error(`Subagent not found: ${agent}`);
-      return this.startOne(definition, input.task, input.context, explicitMode, ctx, config, parentSignal, notifyUpdate, limiter, parentContext, input.includeParentContext);
+      return this.startOne(definition, input.task, input.context, explicitMode, ctx, config, parentSignal, notifyUpdate, limiter, parentContext, input.includeParentContext, (input as { title?: string }).title);
     });
     notifyUpdate();
     const launched = ids.map((id) => this.tasks.get(id)!).filter(Boolean);
@@ -747,10 +749,12 @@ export class SubagentManager {
     limiter = createLimiter(1),
     parentContext?: string,
     includeParentContext?: boolean,
+    title?: string,
   ): string {
     const session_id = sessionIdFromContext(ctx);
     const effectiveProfile = resolveEffectiveSubagentProfile({ agentName: definition.name, definition, config, ctx });
     const effectiveMode = resolveEffectiveSubagentMode({ invocationMode: mode, definition, config });
+    const cleanTitle = cleanSessionTitle(title);
     const task: SubagentTask = {
       id: taskId(definition.name),
       agent: definition.name,
@@ -760,6 +764,7 @@ export class SubagentManager {
       task: taskText,
       context,
       includeParentContext,
+      title: cleanTitle,
       model: modelRefLabel(effectiveProfile.model.value),
       effort: effectiveProfile.effort.value,
       model_source: effectiveProfile.model.source,
@@ -771,12 +776,12 @@ export class SubagentManager {
       last_activity_at: nowIso(),
       last_activity: 'queued',
     };
-    this.launchAttempt({ definition, taskText, context, parentContext, task, ctx, config, effectiveProfile, parentSessionId: session_id, parentSignal, onTaskUpdate, limiter });
+    this.launchAttempt({ definition, taskText, context, parentContext, task, ctx, config, effectiveProfile, parentSessionId: session_id, parentSignal, onTaskUpdate, limiter, title: cleanTitle });
     return task.id;
   }
 
   private launchAttempt(input: LaunchAttemptInput): void {
-    const { definition, taskText, context, parentContext, task, ctx, config, effectiveProfile, parentSessionId, nestedSessionPath, previousSnapshot, continuationPrompt, parentSignal, onTaskUpdate, limiter } = input;
+    const { definition, taskText, context, parentContext, task, ctx, config, effectiveProfile, parentSessionId, nestedSessionPath, previousSnapshot, continuationPrompt, title, parentSignal, onTaskUpdate, limiter } = input;
     const cwd = ctx?.cwd ?? process.cwd();
     const id = task.id;
     const controller = new AbortController();
@@ -821,6 +826,7 @@ export class SubagentManager {
             parentPiSessionId: parentSessionId,
             context,
             parentContext,
+            title,
             cwd,
             ctx,
             config,

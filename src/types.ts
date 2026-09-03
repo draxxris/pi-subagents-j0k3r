@@ -75,6 +75,8 @@ export type SubagentRunInput = {
   mode?: SubagentMode;
   /** Inject the parent session transcript (last compaction summary + tail, or everything) in code. Parent model only authors `true`. */
   includeParentContext?: boolean;
+  /** Short display name applied to the nested subagent session(s) without a separate model call. */
+  title?: string;
 };
 
 export type SubagentContinueInput = {
@@ -343,6 +345,8 @@ export type SubagentTask = {
   task: string;
   context?: string;
   includeParentContext?: boolean;
+  /** Display name applied to the nested Pi session for this task, if the orchestrator supplied one. */
+  title?: string;
   created_at: string;
   attempt?: number;
   session_id?: string;
@@ -381,6 +385,8 @@ export type SubagentRunner = (input: {
   parentPiSessionId?: string;
   context?: string;
   parentContext?: string;
+  /** Short display name for the nested Pi session; applied directly without a separate model call. */
+  title?: string;
   cwd: string;
   ctx: any;
   config: SubagentsConfig;

@@ -354,6 +354,7 @@ Parameters:
   context?: string;
   mode?: "task" | "background";
   includeParentContext?: boolean;
+  title?: string; // short display name for the nested subagent session(s)
 }
 ```
 
@@ -364,6 +365,7 @@ Behavior:
 - `mode: "background"` returns task IDs immediately. Keep using the parent chat and wait for the automatic completion/failure turn; use status/result tools only when you explicitly need an intermediate status or stored result, not to poll just for completion.
 - When `mode` is omitted, a mixed batch can return `mode: "mixed"` plus `waited_task_ids`, `background_task_ids`, and per-member `effective_mode` rows.
 - Multiple agents can run from one request with `agents`.
+- `title` sets a display name on the nested subagent session(s) directly, before the session starts and before extensions bind. No separate model call is made to name the session: the orchestrator already has the context, so auto-titling extensions (for example `pi-auto-session-titles`) see the name present and skip their own generation. The title is normalized (whitespace collapsed, control characters stripped, capped at 100 characters) and also stored on the task record so it appears in history, `subagent_status`, and `subagent_result`. Continuations keep the persisted session name.
 - `includeParentContext: true` injects the parent transcript in code (last compaction summary plus everything after it; full history when never compacted) before `## delegated task`, so the parent model only authors `true` instead of pasting history. The whole call is rejected immediately with a `context_overflow` error when the injected text obviously exceeds the subagent model's `contextWindow` (heuristic chars/4 estimate plus reserved output budget; unknown windows never reject).
 - Double Escape during task-mode execution cancels running subagents and aborts the main turn.
 
@@ -376,6 +378,8 @@ Examples:
 // Explicit override: force every selected member into background mode.
 { agents: ["analyst", "reviewer"], task: "review the plan", mode: "background" }
 
+// Session title: name the nested session directly, no title model call.
+{ agent: "reviewer", task: "review the plan", title: "Review the launch plan" }
 // Mixed omitted-mode result shape.
 {
   mode: "mixed",
