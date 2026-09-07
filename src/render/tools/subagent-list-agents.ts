@@ -1,24 +1,17 @@
-import type { ModelRef, ThinkingEffort } from '../types.js';
 import { textComponent } from './components.js';
 
 export type ListedSubagent = {
   name: string;
-  model?: ModelRef;
-  effort?: ThinkingEffort;
   tools: string[];
   allow_model_override?: boolean;
   model_aliases?: string[];
 };
 
-function modelLabel(model?: ModelRef): string {
-  return model ? `${model.provider}/${model.id}` : 'default/current';
-}
-
 function summary(agent: ListedSubagent): string {
   const override = agent.allow_model_override
     ? `allowed (${agent.model_aliases?.join(', ') || 'no aliases configured'})`
     : 'disabled';
-  return `${agent.name} · model: ${modelLabel(agent.model)} · effort: ${agent.effort ?? 'default/current'} · model override: ${override}`;
+  return `${agent.name} · model override: ${override}`;
 }
 
 export function formatSubagentList(agents: ListedSubagent[], includeTools: boolean): string {

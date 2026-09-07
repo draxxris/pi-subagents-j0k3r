@@ -13,7 +13,15 @@ export function createSubagentListAgentsTool(manager: SubagentManager) {
     async execute(_id: string, _params: any, _signal: any, _onUpdate: any, ctx: any) {
       try {
         const agents = manager.listAgents(ctx?.cwd ?? process.cwd(), ctx);
-        return ok(formatSubagentList(agents, true), { agents });
+        const publicAgents = agents.map((agent) => ({
+          name: agent.name,
+          description: agent.description,
+          filePath: agent.filePath,
+          tools: agent.tools,
+          allow_model_override: agent.allow_model_override,
+          model_aliases: agent.model_aliases,
+        }));
+        return ok(formatSubagentList(publicAgents, true), { agents: publicAgents });
       } catch (e) {
         return fail(e);
       }

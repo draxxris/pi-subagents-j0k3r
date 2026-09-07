@@ -25,9 +25,13 @@ describe('subagent_list_agents tool', () => {
     ]);
 
     const result = await registered.subagent_list_agents.execute('1', {}, undefined, undefined, { cwd: env.tmp });
-    expect(result.content[0].text).toContain('analyst · model: default/current · effort: default/current · model override: disabled · tools:');
+    expect(result.content[0].text).toContain('analyst · model override: disabled · tools:');
+    expect(result.content[0].text).not.toContain('model:');
+    expect(result.content[0].text).not.toContain('effort:');
     expect(result.details.agents).toHaveLength(1);
     expect(result.details.agents[0]).toMatchObject({ name: 'analyst' });
+    expect(result.details.agents[0]).not.toHaveProperty('model');
+    expect(result.details.agents[0]).not.toHaveProperty('effort');
   });
 
   it('lists the effective configured model and effort used for execution', () => {
@@ -63,7 +67,13 @@ describe('subagent_list_agents tool', () => {
       allow_model_override: true,
       model_aliases: ['luna', 'sol'],
     });
+    expect((result.details as any).agents[0]).not.toHaveProperty('model');
+    expect((result.details as any).agents[0]).not.toHaveProperty('effort');
     expect(result.content[0].text).toContain('model override: allowed (luna, sol)');
+    expect(result.content[0].text).not.toContain('openai-codex/gpt-5.6-sol');
+    expect(result.content[0].text).not.toContain('openai-codex/gpt-5.6-luna');
+    expect(result.content[0].text).not.toContain('model:');
+    expect(result.content[0].text).not.toContain('effort:');
   });
 
   it('shows five agents when collapsed and dim tools below every agent when expanded', async () => {
@@ -78,20 +88,23 @@ describe('subagent_list_agents tool', () => {
     const result = await tool.execute('1', {}, undefined, undefined, { cwd: env.tmp });
     const theme = { fg: (name: string, text: string) => name === 'dim' ? `<dim>${text}</dim>` : text };
 
-    expect(result.content[0].text).toContain('agent-7 · model: default/current · effort: default/current · model override: disabled · tools: read, memory_search');
+    expect(result.content[0].text).toContain('agent-7 · model override: disabled · tools: read, memory_search');
+    expect(result.content[0].text).not.toContain('model:');
+    expect(result.content[0].text).not.toContain('effort:');
+    expect(result.content[0].text).not.toContain('openai/gpt-5.4');
 
     const collapsed = tool.renderResult(result, { expanded: false }, theme).render(200).join('\n');
     const expanded = tool.renderResult(result, { expanded: true }, theme).render(200).join('\n');
 
-    expect(collapsed).toContain('agent-1 · model: openai/gpt-5.4 · effort: high');
-    expect(collapsed).toContain('agent-5 · model: default/current · effort: default/current');
+    expect(collapsed).toContain('agent-1 · model override: disabled');
+    expect(collapsed).toContain('agent-5 · model override: disabled');
     expect(collapsed).not.toContain('agent-6 ·');
     expect(collapsed).toContain('<dim>… 2 more agents hidden</dim>');
     expect(collapsed).toContain('<dim>ctrl+o to expand</dim>');
     expect(collapsed).not.toContain('tools:');
 
-    expect(expanded).toContain('agent-6 · model: default/current · effort: default/current');
-    expect(expanded).toContain('agent-7 · model: default/current · effort: default/current');
+    expect(expanded).toContain('agent-6 · model override: disabled');
+    expect(expanded).toContain('agent-7 · model override: disabled');
     expect(expanded).toContain('<dim>  tools: read, memory_search</dim>');
     expect(expanded).not.toContain('ctrl+o to expand');
   });
