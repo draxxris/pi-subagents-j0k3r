@@ -8,6 +8,7 @@ import { sdkSubagentRunner } from './runner.js';
 import { SubagentHistoryStore } from './history.js';
 import { publishInteractionResponse, sanitizeInteractionTransportText } from './interaction-channel.js';
 import { classifyThrownError, deriveErrorString, enrichErrorMetadata, normalizeErrorMetadata, SubagentStructuredError } from './error-metadata.js';
+import { assertParentContextFits, buildParentContextText, parentSessionPathFromContext } from './parent-context.js';
 import { profileSourceLabel, resolveEffectiveSubagentProfile } from './profile-resolver.js';
 import type { SubagentInteractionRequest, SubagentInteractionResponse } from './interaction-channel.js';
 import type { EffectiveSubagentProfile, LiveSteeringBridge, ModelRef, SendMessageResult, SubagentContinueInput, SubagentDefinition, SubagentErrorMetadata, SubagentRunInput, SubagentRunResult, SubagentsConfig, SubagentRunner, SubagentTask } from './types.js';
@@ -272,6 +273,7 @@ type LaunchAttemptInput = {
   definition: SubagentDefinition;
   taskText: string;
   context: string | undefined;
+  parentContext?: string | undefined;
   task: SubagentTask;
   ctx: any;
   config: SubagentsConfig;
@@ -542,12 +544,34 @@ export class SubagentManager {
 
     const definitions = new Map(loadSubagents(cwd).map((definition) => [definition.name, definition]));
     const limiter = this.limiter(cwd, config.max_concurrency);
+    // Resolve + preflight injected parent context BEFORE launching anything so
+    // an oversize transcript rejects the whole call immediately with no partial launches.
+    let parentContext: string | undefined;
+    if (input.includeParentContext) {
+      const sessionPath = parentSessionPathFromContext(ctx);
+      if (!sessionPath) throw new Error('includeParentContext requires a persisted parent session, but no parent session file was found.');
+      parentContext = buildParentContextText(sessionPath).text;
+      for (const agent of agents) {
+        const definition = definitions.get(agent.toLowerCase());
+        if (!definition) throw new Error(`Subagent not found: ${agent}`);
+        const profile = resolveEffectiveSubagentProfile({ agentName: definition.name, definition, config, ctx });
+        assertParentContextFits({
+          parentText: parentContext,
+          systemPrompt: definition.instructions,
+          task: input.task,
+          context: input.context,
+          ctx,
+          profile,
+          agentName: definition.name,
+        });
+      }
+    }
     let ids: string[] = [];
     const notifyUpdate = () => onTaskUpdate?.(ids.map((id) => this.tasks.get(id)!).filter(Boolean));
     ids = agents.map((agent) => {
       const definition = definitions.get(agent.toLowerCase());
       if (!definition) throw new Error(`Subagent not found: ${agent}`);
-      return this.startOne(definition, input.task, input.context, explicitMode, ctx, config, parentSignal, notifyUpdate, limiter);
+      return this.startOne(definition, input.task, input.context, explicitMode, ctx, config, parentSignal, notifyUpdate, limiter, parentContext, input.includeParentContext);
     });
     notifyUpdate();
     const launched = ids.map((id) => this.tasks.get(id)!).filter(Boolean);
@@ -721,6 +745,8 @@ export class SubagentManager {
     parentSignal?: AbortSignal,
     onTaskUpdate?: () => void,
     limiter = createLimiter(1),
+    parentContext?: string,
+    includeParentContext?: boolean,
   ): string {
     const session_id = sessionIdFromContext(ctx);
     const effectiveProfile = resolveEffectiveSubagentProfile({ agentName: definition.name, definition, config, ctx });
@@ -733,6 +759,7 @@ export class SubagentManager {
       status: 'queued',
       task: taskText,
       context,
+      includeParentContext,
       model: modelRefLabel(effectiveProfile.model.value),
       effort: effectiveProfile.effort.value,
       model_source: effectiveProfile.model.source,
@@ -744,12 +771,12 @@ export class SubagentManager {
       last_activity_at: nowIso(),
       last_activity: 'queued',
     };
-    this.launchAttempt({ definition, taskText, context, task, ctx, config, effectiveProfile, parentSessionId: session_id, parentSignal, onTaskUpdate, limiter });
+    this.launchAttempt({ definition, taskText, context, parentContext, task, ctx, config, effectiveProfile, parentSessionId: session_id, parentSignal, onTaskUpdate, limiter });
     return task.id;
   }
 
   private launchAttempt(input: LaunchAttemptInput): void {
-    const { definition, taskText, context, task, ctx, config, effectiveProfile, parentSessionId, nestedSessionPath, previousSnapshot, continuationPrompt, parentSignal, onTaskUpdate, limiter } = input;
+    const { definition, taskText, context, parentContext, task, ctx, config, effectiveProfile, parentSessionId, nestedSessionPath, previousSnapshot, continuationPrompt, parentSignal, onTaskUpdate, limiter } = input;
     const cwd = ctx?.cwd ?? process.cwd();
     const id = task.id;
     const controller = new AbortController();
@@ -793,6 +820,7 @@ export class SubagentManager {
             taskId: id,
             parentPiSessionId: parentSessionId,
             context,
+            parentContext,
             cwd,
             ctx,
             config,

@@ -73,6 +73,8 @@ export type SubagentRunInput = {
   task: string;
   context?: string;
   mode?: SubagentMode;
+  /** Inject the parent session transcript (last compaction summary + tail, or everything) in code. Parent model only authors `true`. */
+  includeParentContext?: boolean;
 };
 
 export type SubagentContinueInput = {
@@ -340,6 +342,7 @@ export type SubagentTask = {
   status: SubagentStatus;
   task: string;
   context?: string;
+  includeParentContext?: boolean;
   created_at: string;
   attempt?: number;
   session_id?: string;
@@ -377,6 +380,7 @@ export type SubagentRunner = (input: {
   taskId?: string;
   parentPiSessionId?: string;
   context?: string;
+  parentContext?: string;
   cwd: string;
   ctx: any;
   config: SubagentsConfig;

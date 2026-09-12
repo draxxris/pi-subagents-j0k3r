@@ -222,14 +222,14 @@ function createLiveSteeringBridge(session: any, piVersion: unknown) {
   };
 }
 
-export const sdkSubagentRunner: SubagentRunner = async ({ definition, task, taskId, parentPiSessionId, context, cwd, ctx, config, signal, effectiveProfile, nested_session_path, continuation, registerLiveBridge, clearLiveBridge, onQueuedMessageStart, onActivity }) => {
+export const sdkSubagentRunner: SubagentRunner = async ({ definition, task, taskId, parentPiSessionId, context, parentContext, cwd, ctx, config, signal, effectiveProfile, nested_session_path, continuation, registerLiveBridge, clearLiveBridge, onQueuedMessageStart, onActivity }) => {
   const profile = effectiveProfile ?? resolveEffectiveSubagentProfile({ agentName: definition.name, definition, config, ctx });
   const preferred = selectedModel({ ctx, definition, profile });
   const effort = profile.effort.value;
   const configuredTools = definition.tools?.length ? definition.tools : config.default_tools;
   const tools = expandToolPatterns(configuredTools, activeToolNames(ctx));
   const systemPrompt = definition.instructions;
-  const prompt = continuation?.prompt ?? buildPrompt(definition, task, context, tools);
+  const prompt = continuation?.prompt ?? buildPrompt(definition, task, context, tools, parentContext);
   onActivity?.({
     message: continuation ? 'continuation prompt prepared' : 'orchestrator prompt prepared',
     prompt,

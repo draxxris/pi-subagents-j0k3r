@@ -353,6 +353,7 @@ Parameters:
   task: string;
   context?: string;
   mode?: "task" | "background";
+  includeParentContext?: boolean;
 }
 ```
 
@@ -363,6 +364,7 @@ Behavior:
 - `mode: "background"` returns task IDs immediately. Keep using the parent chat and wait for the automatic completion/failure turn; use status/result tools only when you explicitly need an intermediate status or stored result, not to poll just for completion.
 - When `mode` is omitted, a mixed batch can return `mode: "mixed"` plus `waited_task_ids`, `background_task_ids`, and per-member `effective_mode` rows.
 - Multiple agents can run from one request with `agents`.
+- `includeParentContext: true` injects the parent transcript in code (last compaction summary plus everything after it; full history when never compacted) before `## delegated task`, so the parent model only authors `true` instead of pasting history. The whole call is rejected immediately with a `context_overflow` error when the injected text obviously exceeds the subagent model's `contextWindow` (heuristic chars/4 estimate plus reserved output budget; unknown windows never reject).
 - Double Escape during task-mode execution cancels running subagents and aborts the main turn.
 
 Examples:

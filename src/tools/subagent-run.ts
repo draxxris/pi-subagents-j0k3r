@@ -34,14 +34,15 @@ export function createSubagentRunTool(manager: SubagentManager, pi: any) {
   return {
     name: 'subagent_run',
     label: 'Subagent Run',
-    description: 'Delegate a task to one or more markdown-defined subagents. Always omit mode unless the user explicitly requested task or background; the manager will choose automatically. Use mode=task to wait or mode=background to free the chat and wait for the automatic completion notification when the user explicitly asked for that behavior.',
-    promptSnippet: 'Delegate analysis/review/test/design tasks to subagents. Always omit mode unless the user explicitly requested task or background; the manager chooses automatically when mode is omitted.',
+    description: 'Delegate a task to one or more markdown-defined subagents. Always omit mode unless the user explicitly requested task or background; the manager will choose automatically. Use mode=task to wait or mode=background to free the chat and wait for the automatic completion notification when the user explicitly asked for that behavior. Use includeParentContext=true to inject the parent transcript (last compaction summary plus tail, or everything) in code without spending parent output tokens; the call is rejected immediately when it obviously exceeds the subagent model window.',
+    promptSnippet: 'Delegate analysis/review/test/design tasks to subagents. Always omit mode unless the user explicitly requested task or background; the manager chooses automatically when mode is omitted. Use includeParentContext=true to inject parent context in code when the subagent needs full history.',
     parameters: Type.Object({
       agent: Type.Optional(Type.String()),
       agents: Type.Optional(Type.Array(Type.String())),
       task: Type.String(),
       context: Type.Optional(Type.String()),
       mode: Type.Optional(Type.Union([Type.Literal('task'), Type.Literal('background')])),
+      includeParentContext: Type.Optional(Type.Boolean()),
     }),
     async execute(_id: string, params: any, _signal: any, onUpdate: any, ctx: any) {
       let cancelledByDoubleEscape = false;
